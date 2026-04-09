@@ -1,38 +1,44 @@
-"""Claude API client cu memorie conversatie per sesiune."""
+"""Claude API client cu memorie conversatie per sesiune si suport multi-agent."""
 import os
-from pathlib import Path
 from anthropic import Anthropic
+from agents_registry import get_agent
 
-client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+_client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-_ANA_SYSTEM_PROMPT = (
-    Path(__file__).parent.parent / "agents" / "ana" / "system_prompt.md"
-).read_text(encoding="utf-8")
-
-# session_id -> lista de mesaje
-_sessions: dict[str, list[dict]] = {}
+# session_id -> { agent_id -> [mesaje] }
+# Fiecare agent are memoria lui separata per sesiune
+_sessions: dict[str, dict[str, list[dict]]] = {}
 
 
-def get_response(text: str, session_id: str, agent: str = "ana") -> str:
-    """Trimite mesaj la Claude si returneaza raspunsul text."""
+def get_response(text: str, session_id: str, agent_id: str = "ana") -> str:
+    """
+    Trimite mesaj la Claude cu system prompt-ul agentului corect.
+    Memoria e separata per (session_id, agent_id).
+    """
+    agent = get_agent(agent_id)
+
+    # Initializeaza memoria sesiunii
     if session_id not in _sessions:
-        _sessions[session_id] = []
+        _sessions[session_id] = {}
+    if agent_id not in _sessions[session_id]:
+        _sessions[session_id][agent_id] = []
 
-    _sessions[session_id].append({"role": "user", "content": text})
+    history = _sessions[session_id][agent_id]
+    history.append({"role": "user", "content": text})
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
+    response = _client.messages.create(
+        model=agent.model,
         max_tokens=256,
-        system=_ANA_SYSTEM_PROMPT,
-        messages=_sessions[session_id],
+        system=agent.system_prompt,
+        messages=history,
     )
 
     reply = response.content[0].text
-    _sessions[session_id].append({"role": "assistant", "content": reply})
+    history.append({"role": "assistant", "content": reply})
 
-    # pastreaza max 20 mesaje per sesiune
-    if len(_sessions[session_id]) > 20:
-        _sessions[session_id] = _sessions[session_id][-20:]
+    # Pastreaza max 20 mesaje per (sesiune, agent)
+    if len(history) > 20:
+        _sessions[session_id][agent_id] = history[-20:]
 
     return reply
 
