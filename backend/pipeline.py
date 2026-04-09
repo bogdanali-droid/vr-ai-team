@@ -1,16 +1,16 @@
 """
 Pipeline principal: text input -> raspuns agent + audio bytes.
-Audio: ElevenLabs (daca disponibil) -> Edge TTS neural -> gTTS fallback.
+Audio: ElevenLabs -> Edge TTS neural -> gTTS fallback.
 """
 import asyncio
 import base64
+import concurrent.futures
 import io
 from claude_client import get_response
 from elevenlabs_client import text_to_speech
 from delegation_engine import route_message
 from agents_registry import get_agent, AGENTS
 
-# Voci Edge TTS per agent (ro-RO neural, gratuit)
 EDGE_VOICES = {
     "ana":    "ro-RO-AlinaNeural",
     "alina":  "ro-RO-AlinaNeural",
@@ -22,12 +22,10 @@ EDGE_VOICES = {
 
 
 def _edge_tts_to_pcm16(text: str, voice: str) -> bytes:
-    """Edge TTS (Microsoft neural) -> PCM16 raw bytes (16kHz, mono)."""
-    try:
-        import edge_tts
-        from pydub import AudioSegment
-
+    """Edge TTS neural -> PCM16. Ruleaza in thread separat (compatibil cu FastAPI loop)."""
+    def _run():
         async def _synthesize():
+            import edge_tts
             communicate = edge_tts.Communicate(text, voice)
             mp3_buf = io.BytesIO()
             async for chunk in communicate.stream():
@@ -35,10 +33,19 @@ def _edge_tts_to_pcm16(text: str, voice: str) -> bytes:
                     mp3_buf.write(chunk["data"])
             return mp3_buf.getvalue()
 
-        mp3_bytes = asyncio.run(_synthesize())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(_synthesize())
+        finally:
+            loop.close()
+
+    try:
+        from pydub import AudioSegment
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            mp3_bytes = ex.submit(_run).result(timeout=30)
         if not mp3_bytes:
             return b""
-
         audio = AudioSegment.from_mp3(io.BytesIO(mp3_bytes))
         audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
         return audio.raw_data
@@ -48,7 +55,6 @@ def _edge_tts_to_pcm16(text: str, voice: str) -> bytes:
 
 
 def _gtts_to_pcm16(text: str) -> bytes:
-    """Fallback gTTS -> PCM16."""
     try:
         from gtts import gTTS
         from pydub import AudioSegment
@@ -64,21 +70,15 @@ def _gtts_to_pcm16(text: str) -> bytes:
 
 
 def _get_audio(text: str, agent_id: str, voice_id: str) -> bytes:
-    """ElevenLabs -> Edge TTS neural -> gTTS fallback."""
-    # 1. ElevenLabs (daca e configurat)
     if voice_id:
         pcm = text_to_speech(text, voice_id=voice_id)
         if pcm:
             return pcm
-
-    # 2. Edge TTS neural (gratuit, voce naturala)
     edge_voice = EDGE_VOICES.get(agent_id, "ro-RO-AlinaNeural")
-    print(f"[Pipeline] Folosesc Edge TTS: {edge_voice}")
+    print(f"[Pipeline] Edge TTS: {edge_voice}")
     pcm = _edge_tts_to_pcm16(text, edge_voice)
     if pcm:
         return pcm
-
-    # 3. Fallback gTTS
     print("[Pipeline] Fallback gTTS...")
     return _gtts_to_pcm16(text)
 
@@ -92,18 +92,14 @@ def process_message(
 ) -> dict:
     original_agent = agent_id
     active_agent   = agent_id
-
     if auto_delegate and agent_id == "ana":
         routed = route_message(text)
         if routed != "ana":
             active_agent = routed
-
     agent_config = get_agent(active_agent)
     reply_text   = get_response(text, session_id, active_agent)
-
-    audio_bytes = _get_audio(reply_text, active_agent, agent_config.voice_id)
-    audio_b64   = base64.b64encode(audio_bytes).decode("utf-8") if audio_bytes else ""
-
+    audio_bytes  = _get_audio(reply_text, active_agent, agent_config.voice_id)
+    audio_b64    = base64.b64encode(audio_bytes).decode("utf-8") if audio_bytes else ""
     return {
         "text":        reply_text,
         "audio_b64":   audio_b64,
