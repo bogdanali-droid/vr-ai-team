@@ -2,15 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
-// Pachet: https://github.com/endel/NativeWebSocket
-// Add via Package Manager: https://github.com/endel/NativeWebSocket.git
+// NativeWebSocket — adauga in Package Manager:
+// + Add package from git URL: https://github.com/endel/NativeWebSocket.git#upm
+// Dupa instalare, defineste scriptul NATIVE_WEBSOCKET in:
+// Edit > Project Settings > Player > Other Settings > Scripting Define Symbols
+
+#if NATIVE_WEBSOCKET
 using NativeWebSocket;
+#endif
 
 namespace VROffice
 {
     /// <summary>
-    /// WebSocket client persistent — Unity <-> Backend Python.
-    /// Adauga acest component pe un GameObject cu DontDestroyOnLoad.
+    /// WebSocket client Unity <-> Backend Python.
+    /// Necesita pachetul NativeWebSocket (vezi instructiunile de mai sus).
+    /// Pana la instalare, scriptul compileaza dar conexiunea e inactiva.
     /// </summary>
     public class WebSocketClient : MonoBehaviour
     {
@@ -19,15 +25,14 @@ namespace VROffice
         public string serverUrl = "ws://192.168.1.100:8765";
         [SerializeField] private float reconnectDelaySec = 3f;
 
-        private WebSocket _ws;
         private readonly Queue<string> _incomingQueue = new();
-        private bool _reconnecting;
 
-        /// <summary>Mesaj primit de la backend (thread-safe, pe main thread).</summary>
         public event Action<string> OnJsonReceived;
-        public bool IsConnected => _ws?.State == WebSocketState.Open;
 
-        // ------------------------------------------------------------------ //
+#if NATIVE_WEBSOCKET
+        private WebSocket _ws;
+        private bool _reconnecting;
+        public bool IsConnected => _ws?.State == WebSocketState.Open;
 
         private async void Start()
         {
@@ -47,12 +52,9 @@ namespace VROffice
             }
         }
 
-        // ------------------------------------------------------------------ //
-
         public async Task Connect()
         {
             _ws = new WebSocket(serverUrl);
-
             _ws.OnOpen    += () => Debug.Log("[WS] Conectat la backend");
             _ws.OnError   += err => Debug.LogError($"[WS] Eroare: {err}");
             _ws.OnClose   += code =>
@@ -65,7 +67,6 @@ namespace VROffice
                 var json = System.Text.Encoding.UTF8.GetString(bytes);
                 lock (_incomingQueue) _incomingQueue.Enqueue(json);
             };
-
             await _ws.Connect();
         }
 
@@ -77,7 +78,6 @@ namespace VROffice
             await Connect();
         }
 
-        /// <summary>Trimite un obiect serializat JSON la backend.</summary>
         public async Task Send(object data)
         {
             if (!IsConnected)
@@ -85,24 +85,51 @@ namespace VROffice
                 Debug.LogWarning("[WS] Nu esti conectat. Mesajul a fost ignorat.");
                 return;
             }
-            var json = JsonUtility.ToJson(data);
-            await _ws.SendText(json);
+            await _ws.SendText(JsonUtility.ToJson(data));
         }
 
         private async void OnApplicationQuit()
         {
-            if (_ws != null)
-                await _ws.Close();
+            if (_ws != null) await _ws.Close();
         }
+
+#else
+        // Stub — compileaza fara NativeWebSocket
+        public bool IsConnected => false;
+
+        private void Start()
+        {
+            DontDestroyOnLoad(gameObject);
+            Debug.LogWarning("[WS] NativeWebSocket nu e instalat. " +
+                "Adauga pachetul din: https://github.com/endel/NativeWebSocket.git#upm");
+        }
+
+        private void Update()
+        {
+            lock (_incomingQueue)
+            {
+                while (_incomingQueue.Count > 0)
+                    OnJsonReceived?.Invoke(_incomingQueue.Dequeue());
+            }
+        }
+
+        public Task Connect() { return Task.CompletedTask; }
+
+        public Task Send(object data)
+        {
+            Debug.LogWarning("[WS] Nu e conectat — instaleaza NativeWebSocket.");
+            return Task.CompletedTask;
+        }
+#endif
     }
 
-    // ---- Modele de date trimise / primite ---- //
+    // ---- Modele de date ---- //
 
     [Serializable]
     public class UserMessage
     {
-        public string type    = "user_message";
-        public string agent   = "ana";
+        public string type       = "user_message";
+        public string agent      = "ana";
         public string text;
         public string session_id;
     }
@@ -110,9 +137,9 @@ namespace VROffice
     [Serializable]
     public class AgentResponse
     {
-        public string type;       // "agent_response"
+        public string type;
         public string agent;
         public string text;
-        public string audio_b64;  // mp3 base64
+        public string audio_b64;
     }
 }
