@@ -8,25 +8,24 @@ using UnityEngine;
 namespace VROffice
 {
     /// <summary>
-    /// Speech-to-Text via Whisper API (OpenAI).
+    /// Speech-to-Text via Whisper local (server Python) sau OpenAI.
     /// Primeste un AudioClip inregistrat, returneaza textul transcris.
     /// </summary>
     public class WhisperSTT : MonoBehaviour
     {
-        [Header("Whisper API")]
-        [Tooltip("Lasa gol pentru OpenAI. Sau un endpoint compatibil (ex: local Whisper).")]
-        public string apiUrl = "https://api.openai.com/v1/audio/transcriptions";
-        public string apiKey;  // seteaza din Inspector sau citeste din env
+        [Header("Whisper STT")]
+        [Tooltip("URL server local: http://localhost:8765/transcribe  sau OpenAI: https://api.openai.com/v1/audio/transcriptions")]
+        public string apiUrl = "http://localhost:8765/transcribe";
+
+        [Tooltip("Necesar doar pentru OpenAI. Lasa gol pentru server local.")]
+        public string apiKey = "";
+
         public string language = "ro";
 
         private static readonly HttpClient _http = new();
 
         // ------------------------------------------------------------------ //
 
-        /// <summary>
-        /// Transcrie un AudioClip la text.
-        /// Apeleaza await pe main thread sau dintr-un coroutine cu Task.
-        /// </summary>
         public async Task<string> Transcribe(AudioClip clip)
         {
             if (clip == null || clip.length < 0.3f)
@@ -46,8 +45,11 @@ namespace VROffice
             {
                 Content = content
             };
-            request.Headers.Authorization =
-                new AuthenticationHeaderValue("Bearer", apiKey);
+
+            // Adauga auth doar daca e setat (OpenAI)
+            if (!string.IsNullOrEmpty(apiKey))
+                request.Headers.Authorization =
+                    new AuthenticationHeaderValue("Bearer", apiKey);
 
             try
             {
@@ -65,14 +67,12 @@ namespace VROffice
         }
 
         // ------------------------------------------------------------------ //
-        // AudioClip -> WAV bytes (PCM16, mono)
 
         private static byte[] AudioClipToWav(AudioClip clip)
         {
             var samples = new float[clip.samples * clip.channels];
             clip.GetData(samples, 0);
 
-            // Downsample la mono daca e stereo
             float[] mono = clip.channels == 1 ? samples : ToMono(samples, clip.channels);
 
             using var ms = new MemoryStream();
@@ -80,20 +80,19 @@ namespace VROffice
 
             int sampleRate = clip.frequency;
             int numSamples = mono.Length;
-            int dataBytes   = numSamples * 2; // PCM16
+            int dataBytes   = numSamples * 2;
 
-            // WAV header
             writer.Write(new char[] { 'R', 'I', 'F', 'F' });
             writer.Write(36 + dataBytes);
             writer.Write(new char[] { 'W', 'A', 'V', 'E' });
             writer.Write(new char[] { 'f', 'm', 't', ' ' });
-            writer.Write(16);          // chunk size
-            writer.Write((short)1);   // PCM
-            writer.Write((short)1);   // mono
+            writer.Write(16);
+            writer.Write((short)1);
+            writer.Write((short)1);
             writer.Write(sampleRate);
-            writer.Write(sampleRate * 2); // byte rate
-            writer.Write((short)2);   // block align
-            writer.Write((short)16);  // bits per sample
+            writer.Write(sampleRate * 2);
+            writer.Write((short)2);
+            writer.Write((short)16);
             writer.Write(new char[] { 'd', 'a', 't', 'a' });
             writer.Write(dataBytes);
 
