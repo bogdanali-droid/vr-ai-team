@@ -19,14 +19,15 @@ from pipeline import process_message, get_agents_list
 app = FastAPI()
 
 # ── Whisper local ──────────────────────────────────────────── #
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "medium")
 _whisper_model = None
 
 def _get_whisper():
     global _whisper_model
     if _whisper_model is None:
-        print("[Whisper] Se incarca modelul 'small' (~244MB, mai precis)...")
+        print(f"[Whisper] Se incarca modelul '{WHISPER_MODEL}'...")
         import whisper
-        _whisper_model = whisper.load_model("small")
+        _whisper_model = whisper.load_model(WHISPER_MODEL)
         print("[Whisper] Model incarcat.")
     return _whisper_model
 
@@ -38,8 +39,7 @@ async def transcribe_audio(
     model: str = Form(default="whisper-1"),
 ):
     audio_bytes = await file.read()
-    suffix = ".wav"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp.write(audio_bytes)
         tmp_path = tmp.name
     try:
@@ -106,5 +106,5 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8765))
     print(f"VR AI Team Backend")
     print(f"  WebSocket : ws://{host}:{port}/")
-    print(f"  Whisper   : http://{host}:{port}/transcribe")
+    print(f"  Whisper   : http://{host}:{port}/transcribe  (model: {WHISPER_MODEL})")
     uvicorn.run(app, host=host, port=port, log_level="warning")
