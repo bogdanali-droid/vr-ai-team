@@ -1,0 +1,10 @@
+{
+  "_comment": "Adauga aceste pachete in Unity Package Manager (Window > Package Manager)",
+  "dependencies": {
+    "com.meta.xr.sdk.all": "https://npm.developer.oculus.com",
+    "com.endel.nativewebsocket": "https://github.com/endel/NativeWebSocket.git#upm",
+    "com.unity.textmeshpro": "3.0.9",
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
+  },
+  "_oculus_lipsync": "Download manual: https://developer.oculus.com/downloads/package/oculus-lipsync-unity/"
+}
