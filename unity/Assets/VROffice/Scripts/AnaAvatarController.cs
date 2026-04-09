@@ -1,8 +1,7 @@
 using System.Collections;
 using UnityEngine;
-// Oculus LipSync SDK — import manual
-// https://developer.oculus.com/downloads/package/oculus-lipsync-unity/
-using Oculus.LipSync;
+// OVRLipSyncContext este in namespace global (Meta XR SDK)
+// Nu necesita 'using Oculus.LipSync'
 
 namespace VROffice
 {
@@ -18,26 +17,25 @@ namespace VROffice
     {
         [Header("Components")]
         public Animator animator;
-        public OVRLipSyncContext lipSyncContext;  // pe acelasi GameObject cu AudioSource
 
-        [Header("LipSync")]
+#if OVR_LIPSYNC
+        [Tooltip("OVRLipSyncContext pe acelasi GameObject cu AudioSource.")]
+        public OVRLipSyncContext lipSyncContext;
         [Tooltip("OVRLipSyncContextMorphTarget atasat avatarului.")]
         public OVRLipSyncContextMorphTarget morphTarget;
+#endif
 
-        // Parametri Animator (trebuie definiti in Unity Animator Controller)
+        // Parametri Animator
         private static readonly int _IsTalking   = Animator.StringToHash("IsTalking");
         private static readonly int _IsListening = Animator.StringToHash("IsListening");
-        private static readonly int _Greet       = Animator.StringToHash("Greet");
 
         private AudioSource _audioSource;
         private bool _isBusy;
 
-        // ------------------------------------------------------------------ //
-
         private void Awake()
         {
             _audioSource = GetComponent<AudioSource>();
-            _audioSource.spatialBlend = 1f; // 3D sound in VR
+            _audioSource.spatialBlend = 1f;
         }
 
         private void Start()
@@ -45,24 +43,16 @@ namespace VROffice
             SetIdle();
         }
 
-        // ------------------------------------------------------------------ //
-        // API public apelat din VoicePipeline
-
-        /// <summary>
-        /// Primeste raspunsul de la backend si il reda.
-        /// </summary>
         public void PlayResponse(string text, string audio_b64)
         {
             if (_isBusy)
             {
-                // Opreste ce redai si treci la noul raspuns
                 StopAllCoroutines();
                 _audioSource.Stop();
             }
             StartCoroutine(PlayRoutine(text, audio_b64));
         }
 
-        /// <summary>Apelat cand utilizatorul tine butonul apasat (inregistreaza).</summary>
         public void SetListening()
         {
             animator?.SetBool(_IsListening, true);
@@ -75,13 +65,10 @@ namespace VROffice
             animator?.SetBool(_IsTalking, false);
         }
 
-        // ------------------------------------------------------------------ //
-
         private IEnumerator PlayRoutine(string text, string audio_b64)
         {
             _isBusy = true;
 
-            // ElevenLabs output_format=pcm_16000 -> raw PCM16, decode direct cu AudioUtils
             AudioClip clip = AudioUtils.Base64PcmToAudioClip(audio_b64, "ana_response");
 
             if (clip != null)
@@ -89,8 +76,6 @@ namespace VROffice
                 animator?.SetBool(_IsTalking, true);
                 animator?.SetBool(_IsListening, false);
 
-                // OVRLipSyncContext trebuie sa aiba audioSource = _audioSource
-                // si processAudioSamples = true
                 _audioSource.clip = clip;
                 _audioSource.Play();
 
