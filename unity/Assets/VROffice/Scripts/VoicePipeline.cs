@@ -1,13 +1,12 @@
 using System;
 using System.Threading.Tasks;
 using UnityEngine;
-using UnityEngine.InputSystem; // Meta XR InputSystem (sau OVRInput)
 
 namespace VROffice
 {
     /// <summary>
     /// Orchestreaza fluxul vocal:
-    ///   Apasat trigger -> Inregistrare mic -> Whisper STT -> WebSocket -> primeste audio+text
+    ///   Apasat trigger (Quest) sau Spatiu (PC) -> Inregistrare mic -> STT -> WebSocket -> audio+text
     /// </summary>
     [RequireComponent(typeof(WhisperSTT))]
     public class VoicePipeline : MonoBehaviour
@@ -17,14 +16,8 @@ namespace VROffice
         public AnaAvatarController ana;
 
         [Header("Recording")]
-        [Tooltip("Durata maxima inregistrare in secunde.")]
         public int maxRecordSec = 8;
-        [Tooltip("Frecventa Hz pentru microfon.")]
-        public int sampleRate = 16000;
-
-        [Header("Input — Meta Quest 3")]
-        [Tooltip("Tine apasat trigger dreapta pentru a vorbi.")]
-        public OVRInput.Button pushToTalkButton = OVRInput.Button.PrimaryIndexTrigger;
+        public int sampleRate   = 16000;
 
         // ------------------------------------------------------------------ //
 
@@ -33,8 +26,8 @@ namespace VROffice
         private AudioClip _mic;
         private string _sessionId;
 
-        public event Action<string> OnUserTextReady;   // text transcris
-        public event Action<string> OnAnaTextReceived; // raspuns text de la Ana
+        public event Action<string> OnUserTextReady;
+        public event Action<string> OnAnaTextReceived;
 
         // ------------------------------------------------------------------ //
 
@@ -58,8 +51,15 @@ namespace VROffice
 
         private void Update()
         {
-            if (OVRInput.GetDown(pushToTalkButton)) StartRecording();
-            if (OVRInput.GetUp(pushToTalkButton))   StopRecordingAndSend();
+#if OVR_INPUT
+            // Quest 3 — trigger dreapta
+            if (OVRInput.GetDown(OVRInput.Button.PrimaryIndexTrigger)) StartRecording();
+            if (OVRInput.GetUp(OVRInput.Button.PrimaryIndexTrigger))   StopRecordingAndSend();
+#else
+            // PC fallback — tasta Spatiu
+            if (Input.GetKeyDown(KeyCode.Space)) StartRecording();
+            if (Input.GetKeyUp(KeyCode.Space))   StopRecordingAndSend();
+#endif
         }
 
         // ------------------------------------------------------------------ //
@@ -68,10 +68,11 @@ namespace VROffice
         {
             if (_isRecording) return;
             _isRecording = true;
+            ana?.SetListening();
 
             string mic = Microphone.devices.Length > 0 ? Microphone.devices[0] : null;
             _mic = Microphone.Start(mic, false, maxRecordSec, sampleRate);
-            Debug.Log("[Pipeline] Inregistrare pornita...");
+            Debug.Log("[Pipeline] Inregistrare pornita (tine apasat Spatiu / Trigger)...");
         }
 
         private async void StopRecordingAndSend()
@@ -82,29 +83,28 @@ namespace VROffice
             int pos = Microphone.GetPosition(null);
             Microphone.End(null);
 
-            if (pos < sampleRate * 0.3f) // mai putin de 300ms -> ignora
+            if (pos < sampleRate * 0.3f)
             {
                 Debug.Log("[Pipeline] Inregistrare prea scurta, ignorata.");
+                ana?.SetIdle();
                 return;
             }
 
-            // Taie AudioClip la lungimea reala
             var trimmed = TrimClip(_mic, pos);
 
-            // STT
             Debug.Log("[Pipeline] Transcriere...");
             string text = await _stt.Transcribe(trimmed);
 
             if (string.IsNullOrWhiteSpace(text))
             {
                 Debug.Log("[Pipeline] Transcriere goala, ignorata.");
+                ana?.SetIdle();
                 return;
             }
 
             Debug.Log($"[Pipeline] User: {text}");
             OnUserTextReady?.Invoke(text);
 
-            // Trimite la backend
             await wsClient.Send(new UserMessage
             {
                 agent      = "ana",
@@ -120,7 +120,6 @@ namespace VROffice
 
             Debug.Log($"[Pipeline] Ana: {response.text}");
             OnAnaTextReceived?.Invoke(response.text);
-
             ana?.PlayResponse(response.text, response.audio_b64);
         }
 
