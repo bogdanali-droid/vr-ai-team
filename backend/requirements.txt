@@ -9,3 +9,5 @@ gtts>=2.5.0
 pydub>=0.25.1
 python-multipart>=0.0.9
 openai-whisper>=20231117
+audioop-lts>=0.2.1
+edge-tts>=6.1.9
