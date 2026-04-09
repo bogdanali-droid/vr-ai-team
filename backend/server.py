@@ -24,9 +24,9 @@ _whisper_model = None
 def _get_whisper():
     global _whisper_model
     if _whisper_model is None:
-        print("[Whisper] Se incarca modelul 'base' (prima data ~150MB)...")
+        print("[Whisper] Se incarca modelul 'small' (~244MB, mai precis)...")
         import whisper
-        _whisper_model = whisper.load_model("base")
+        _whisper_model = whisper.load_model("small")
         print("[Whisper] Model incarcat.")
     return _whisper_model
 
