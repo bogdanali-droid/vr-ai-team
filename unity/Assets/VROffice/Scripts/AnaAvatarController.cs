@@ -1,17 +1,9 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
-// OVRLipSyncContext este in namespace global (Meta XR SDK)
-// Nu necesita 'using Oculus.LipSync'
 
 namespace VROffice
 {
-    /// <summary>
-    /// Controller avatar Ana:
-    ///   - Primeste text + audio_b64 de la backend
-    ///   - Decode audio -> AudioClip
-    ///   - Reda audio + LipSync
-    ///   - Gestioneaza animatiile (idle, talking, listening)
-    /// </summary>
     [RequireComponent(typeof(AudioSource))]
     public class AnaAvatarController : MonoBehaviour
     {
@@ -19,18 +11,16 @@ namespace VROffice
         public Animator animator;
 
 #if OVR_LIPSYNC
-        [Tooltip("OVRLipSyncContext pe acelasi GameObject cu AudioSource.")]
         public OVRLipSyncContext lipSyncContext;
-        [Tooltip("OVRLipSyncContextMorphTarget atasat avatarului.")]
         public OVRLipSyncContextMorphTarget morphTarget;
 #endif
 
-        // Parametri Animator
         private static readonly int _IsTalking   = Animator.StringToHash("IsTalking");
         private static readonly int _IsListening = Animator.StringToHash("IsListening");
 
         private AudioSource _audioSource;
         private bool _isBusy;
+        private HashSet<int> _animParams;
 
         private void Awake()
         {
@@ -40,6 +30,13 @@ namespace VROffice
 
         private void Start()
         {
+            // Construieste lista de parametri disponibili (evita warnings)
+            _animParams = new HashSet<int>();
+            if (animator != null && animator.runtimeAnimatorController != null)
+            {
+                foreach (var p in animator.parameters)
+                    _animParams.Add(p.nameHash);
+            }
             SetIdle();
         }
 
@@ -55,14 +52,14 @@ namespace VROffice
 
         public void SetListening()
         {
-            animator?.SetBool(_IsListening, true);
-            animator?.SetBool(_IsTalking, false);
+            SetAnimBool(_IsListening, true);
+            SetAnimBool(_IsTalking, false);
         }
 
         public void SetIdle()
         {
-            animator?.SetBool(_IsListening, false);
-            animator?.SetBool(_IsTalking, false);
+            SetAnimBool(_IsListening, false);
+            SetAnimBool(_IsTalking, false);
         }
 
         private IEnumerator PlayRoutine(string text, string audio_b64)
@@ -73,8 +70,8 @@ namespace VROffice
 
             if (clip != null)
             {
-                animator?.SetBool(_IsTalking, true);
-                animator?.SetBool(_IsListening, false);
+                SetAnimBool(_IsTalking, true);
+                SetAnimBool(_IsListening, false);
 
                 _audioSource.clip = clip;
                 _audioSource.Play();
@@ -83,11 +80,18 @@ namespace VROffice
             }
             else
             {
-                Debug.LogWarning("[Ana] AudioClip null — verifica audio_b64 si ElevenLabs output_format=pcm_16000");
+                Debug.LogWarning("[Ana] AudioClip null — verifica audio_b64");
             }
 
             SetIdle();
             _isBusy = false;
+        }
+
+        private void SetAnimBool(int hash, bool value)
+        {
+            if (animator == null) return;
+            if (_animParams != null && !_animParams.Contains(hash)) return;
+            animator.SetBool(hash, value);
         }
     }
 }
