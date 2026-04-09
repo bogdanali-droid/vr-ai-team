@@ -2,11 +2,11 @@
 import asyncio
 import json
 import uuid
-import websockets
 from dotenv import load_dotenv
-from pipeline import process_message, get_agents_list
+load_dotenv()  # TREBUIE inainte de orice import local
 
-load_dotenv()
+import websockets
+from pipeline import process_message, get_agents_list
 
 
 async def handle_connection(websocket):
@@ -36,7 +36,6 @@ async def handle_connection(websocket):
                 print(f"[{session_id}] User → {agent}: {text}")
                 result = process_message(text, session_id, agent_id=agent)
 
-                # Daca Ana a delegat, afiseaza in log
                 if result["routed_from"]:
                     print(f"[{session_id}] Ana → {result['agent']}: delegat")
 
